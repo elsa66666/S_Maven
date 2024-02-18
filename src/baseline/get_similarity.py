@@ -70,9 +70,14 @@ def get_similarity(dataset, retrieve_model, flag='test'):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='test')
+    parser.add_argument('--test_dataset', default='cikm18', type=str)
+    parser.add_argument('--retrieve_model', default='llm_embedder')
+    args = parser.parse_args()
+
+    '''
     for dataset in ['bigdata22', 'cikm18', 'acl18']:  # 'acl18'
         for retrieve_model in ['stock_maven']:  # 'bge', 'instructor', 'llm_embedder'
-            # 这一步只是获取相似度
-            # get_similarity(dataset=dataset, retrieve_model=retrieve_model, flag='train')
-            # get_similarity(dataset=dataset, retrieve_model=retrieve_model,  flag='valid')
-            get_similarity(dataset=dataset, retrieve_model=retrieve_model, flag='test')
+            get_similarity(dataset=dataset, retrieve_model=retrieve_model, flag='test')    
+    '''
+    get_similarity(dataset=args.test_dataset, retrieve_model=args.retrieve_model, flag='test')

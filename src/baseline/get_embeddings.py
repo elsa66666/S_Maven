@@ -50,7 +50,7 @@ def get_bge_or_llm_embeddings(test_dataset1, directory, retrieve_model, flag):
             embeddings_a = model.encode(sentences_a)
             embedding_list.append({'data': data[i], 'embedding': embeddings_a})
             print('finish embedding ', i, 'in ', len(data))
-    with open(('embeddings/test/' + flag + '_' + test_dataset1 + '_' + retrieve_model + '_embeddings.pkl'), 'wb') as f:
+    with open(('embeddings/'+flag+'/' + flag + '_' + test_dataset1 + '_' + retrieve_model + '_embeddings.pkl'), 'wb') as f:
         pickle.dump(embedding_list, f)
     return 0
 
@@ -63,18 +63,25 @@ def open_embedding_file(test_dataset1, retrieve_model):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='test')
-    parser.add_argument('--test_dataset', default='cikm18', choices=['acl18', 'bigdata22', 'cikm18'], type=str)
+    parser.add_argument('--test_dataset', default='cikm18', type=str)
     parser.add_argument('--retrieve_model', default='llm_embedder')
     args = parser.parse_args()
+
+    '''
     for dataset in ['acl18', 'cikm18', 'bigdata22']:
-        # get_instructor_embeddings(dataset)
-        # get_bge_or_llm_embeddings(dataset, retrieve_model='bge')
         test_directory = '../../data/processed_data/test/' + dataset + '_test_list.json'
-        # train_directory = '../model/all_embedder_training.json'
         if args.retrieve_model != 'instructor':
             get_bge_or_llm_embeddings(dataset, directory=test_directory,
                                       retrieve_model=args.retrieve_model, flag='test')
         else:
             get_instructor_embeddings(dataset)
-        # get_bge_or_llm_embeddings(dataset, directory=test_directory, retrieve_model='stock_maven', flag='test')
-    # open_embedding_file(test_dataset1='cikm18', retrieve_model='instructor')
+    '''
+
+    test_directory = '../../data/processed_data/test/' + args.test_dataset + '_test_list.json'
+    if args.retrieve_model != 'instructor':
+        get_bge_or_llm_embeddings(test_dataset1=args.test_dataset,
+                                  directory=test_directory,
+                                  retrieve_model=args.retrieve_model,
+                                  flag='test')
+    else:
+        get_instructor_embeddings(test_dataset1=args.test_dataset)

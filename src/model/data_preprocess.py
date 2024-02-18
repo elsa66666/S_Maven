@@ -24,28 +24,21 @@ def get_sub_directory_names(path):
     return files
 
 
-def get_slide_set(dataset_name, company_number):
-    if dataset_name == 'acl18':
-        if 1 <= company_number <= 33:  # 1-33
+def get_slide_set(company_number, split_dataset):
+    if split_dataset[0] != 0:
+        if 1 <= company_number <= split_dataset[0]:
             return 'train'
-        elif 34 <= company_number <= 38:  # 34-38
+        elif split_dataset[0] + 1 <= company_number <= split_dataset[0] + split_dataset[1]:
             return 'valid'
-        else:  # 39-71
+        else:
             return 'test'
-    elif dataset_name == 'bigdata22':
-        if 1 <= company_number <= 22:
-            return 'train'
-        elif 23 <= company_number <= 25:
+    elif (split_dataset[0] == 0) and (split_dataset[1] != 0):
+        if 1 <= company_number <= split_dataset[1]:
             return 'valid'
-        else:  # 26-47
+        else:
             return 'test'
-    elif dataset_name == 'cikm18':
-        if 1 <= company_number <= 19:
-            return 'train'
-        elif 20 <= company_number <= 22:
-            return 'valid'
-        else:  # 23-41
-            return 'test'
+    elif (split_dataset[0] == 0) and (split_dataset[1] == 0):
+        return 'test'
 
 
 def get_datastore_df(sequence_id, movement, df_sequence):
@@ -75,7 +68,7 @@ def get_movement(today_adj_close, next_adj_close):
 
 
 # 交易信息切分为序列
-def slice_sequence(sequence_length, dataset_name):
+def slice_sequence(sequence_length, dataset_name, split_dataset, remove_freeze=True):
     data_directory = '../../data/raw_data/'
 
     train_sequence_list1 = []
@@ -90,14 +83,14 @@ def slice_sequence(sequence_length, dataset_name):
         company_directory = dataset_directory + '/' + company_name
         df1 = pd.read_csv(company_directory)
         for i in range(len(df1) - sequence_length):
-            df_sequence = df1[i:i + 5]
+            df_sequence = df1[i:i + sequence_length]
             # print(df_sequence)
             # 序列编号
             sequence_id = dataset_name + '_' + company_name.replace('.csv', '') + '_' + str(i)
             all_count += 1
             # 下一个交易日的close price涨幅
-            today_adj_close = df1[i + 4:i + 5]['Adj Close'].values.tolist()[0]
-            next_adj_close = df1[i + 5:i + 6]['Adj Close'].values.tolist()[0]
+            today_adj_close = df1[(i + sequence_length - 1):(i + sequence_length)]['Adj Close'].values.tolist()[0]
+            next_adj_close = df1[(i + sequence_length):(i + sequence_length + 1)]['Adj Close'].values.tolist()[0]
             movement = get_movement(today_adj_close, next_adj_close)
 
             sequence_dict = get_datastore_df(sequence_id, movement, df_sequence)
@@ -107,40 +100,57 @@ def slice_sequence(sequence_length, dataset_name):
                 sequence_dict['sequence_index'] = 2000000 + all_count
             elif dataset_name == 'cikm18':
                 sequence_dict['sequence_index'] = 3000000 + all_count
+            else:
+                sequence_dict['sequence_index'] = 4000000 + all_count
 
-            if movement != 'freeze':  # 去掉freeze的股票，只做二分类
-                if get_slide_set(dataset_name, company_count) == 'train':
+            split_result = get_slide_set(company_number=company_count, split_dataset=split_dataset)
+            if remove_freeze:
+                if movement != 'freeze':  # 去掉freeze的股票，只做二分类
+                    if split_result == 'train':
+                        train_sequence_list1.append(sequence_dict)
+                    elif split_result == 'valid':
+                        valid_sequence_list1.append(sequence_dict)
+                    else:
+                        test_sequence_list1.append(sequence_dict)
+            else:
+                if split_result == 'train':
                     train_sequence_list1.append(sequence_dict)
-                elif get_slide_set(dataset_name, company_count) == 'valid':
+                elif split_result == 'valid':
                     valid_sequence_list1.append(sequence_dict)
                 else:
                     test_sequence_list1.append(sequence_dict)
 
-    with open("../../data/processed_data/train/" + dataset_name + "_train_list.json", "w") as outfile:
-        for obj in train_sequence_list1:
-            # 将JSON对象转换为字符串
-            json_str = json.dumps(obj)
-            # 将字符串写入文件，并添加换行符
-            outfile.write(json_str + "\n")
-        print('Finish slicing the ' + dataset_name + ' train dataset.')
-    with open("../../data/processed_data/test/" + dataset_name + "_test_list.json", "w") as outfile:
-        for obj in test_sequence_list1:
-            # 将JSON对象转换为字符串
-            json_str = json.dumps(obj)
-            # 将字符串写入文件，并添加换行符
-            outfile.write(json_str + "\n")
-        print('Finish slicing the ' + dataset_name + ' test dataset.')
-    with open("../../data/processed_data/valid/" + dataset_name + "_valid_list.json", "w") as outfile:
-        for obj in valid_sequence_list1:
-            # 将JSON对象转换为字符串
-            json_str = json.dumps(obj)
-            # 将字符串写入文件，并添加换行符
-            outfile.write(json_str + "\n")
-        print('Finish slicing the ' + dataset_name + ' valid dataset.')
+    if train_sequence_list1:
+        with open("../../data/processed_data/train/" + dataset_name + "_train_list.json", "w") as outfile:
+            for obj in train_sequence_list1:
+                json_str = json.dumps(obj)  # 将JSON对象转换为字符串
+                outfile.write(json_str + "\n")   # 将字符串写入文件，并添加换行符
+            print('Finish slicing the ' + dataset_name + ' train dataset.')
+
+    if test_sequence_list1:
+        with open("../../data/processed_data/test/" + dataset_name + "_test_list.json", "w") as outfile:
+            for obj in test_sequence_list1:
+                json_str = json.dumps(obj)
+                outfile.write(json_str + "\n")
+            print('Finish slicing the ' + dataset_name + ' test dataset.')
+
+    if valid_sequence_list1:
+        with open("../../data/processed_data/valid/" + dataset_name + "_valid_list.json", "w") as outfile:
+            for obj in valid_sequence_list1:
+                json_str = json.dumps(obj)
+                outfile.write(json_str + "\n")
+            print('Finish slicing the ' + dataset_name + ' valid dataset.')
     return 0
 
 
 if __name__ == "__main__":
-    slice_sequence(sequence_length=5, dataset_name='acl18')
-    slice_sequence(sequence_length=5, dataset_name='bigdata22')
-    slice_sequence(sequence_length=5, dataset_name='cikm18')
+    # 默认的dataset
+    '''
+    slice_sequence(sequence_length=5, dataset_name='acl18', split_dataset=[33,5,33])
+    slice_sequence(sequence_length=5, dataset_name='bigdata22', split_dataset=[22,3,22])
+    slice_sequence(sequence_length=5, dataset_name='cikm18', split_dataset=[19,3,19])
+    '''
+    slice_sequence(sequence_length=5, # 每条序列的长度
+                   dataset_name='', # 数据集的名字
+                   remove_freeze=True,  # 是否将停摆的股票序列去掉
+                   split_dataset=[33, 5, 33])  # 数据集划分[train,valid,test]，如果全作为测试，e.g. [0,0,71]
