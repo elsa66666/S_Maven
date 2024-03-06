@@ -27,7 +27,7 @@ def get_company_list_and_data(dataset_name):
                         'RDS-B', 'REX', 'SLB', 'SNP', 'SNY', 'SO', 'SPLP', 'SRE', 'T', 'TM', 'TOT', 'TSM',
                         'UL', 'UN', 'UNH', 'UPS', 'UTX', 'V', 'VZ', 'WFC', 'WMT', 'XOM'
                         ]
-        period1 = int(time.mktime(datetime.datetime(2014, 6, 3, 0, 0).timetuple()))
+        period1 = int(time.mktime(datetime.datetime(2014, 6, 2, 0, 0).timetuple()))
         period2 = int(time.mktime(datetime.datetime(2015, 12, 31, 23, 59).timetuple()))
 
     if dataset_name == 'cikm18':
@@ -43,7 +43,7 @@ def get_company_list_and_data(dataset_name):
                         'D', 'DIS', 'DUK', 'EXC', 'GD', 'GE', 'GMRE', 'GOOG', 'HD', 'HON', 'INTC', 'JNJ', 'JPM', 'KO',
                         'LMT', 'MA', 'MCD', 'MDT', 'MMM', 'MO', 'MRK', 'MSFT', 'NEE', 'ORCL', 'PCG', 'PM', 'PPL', 'REX',
                         'SO', 'SRE', 'T', 'UPS', 'V', 'VZ', 'WFC', 'WMT', 'XOM']
-        period1 = int(time.mktime(datetime.datetime(2019, 4, 11, 0, 0).timetuple()))
+        period1 = int(time.mktime(datetime.datetime(2019, 4, 1, 0, 0).timetuple()))
         period2 = int(time.mktime(datetime.datetime(2020, 12, 31, 23, 59).timetuple()))
 
     return company_list, period1, period2
@@ -67,7 +67,7 @@ def download_dataset(dataset_name, company_list, start_date, end_date):
         success = False
         while not success:
             f = requests.get(download_address, headers=headers)  # 把下载地址发送给requests模块
-            if f.content != "":
+            if f.status_code == requests.codes.ok:
                 success = True
                 with open(("../../data/raw_data/" + dataset_name + "/" + company + ".csv"), "wb") as code:
                     code.write(f.content)

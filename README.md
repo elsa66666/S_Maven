@@ -1,15 +1,14 @@
 # 1 安装的库
 
 ```shell
-transformers=4.31
-
+pip install transformers=4.31
 pip install InstructorEmbedding
 pip install -U FlagEmbedding
 pip install sentence-transformers==2.2.2
 pip install protobuf==3.20.0
+pip install yahoo-finance
+python -m pip install -U angle-emb
 ```
-
-
 
 # 2 复现步骤
 

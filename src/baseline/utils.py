@@ -4,6 +4,11 @@ import random
 from dateutil.relativedelta import relativedelta
 import pickle
 from sklearn.metrics.pairwise import cosine_similarity
+import torch
+import torch.nn.functional as F
+import json
+from torch import Tensor
+from transformers import AutoTokenizer, AutoModel
 
 
 def toggle_llama_query(tokenizer, model, query):
@@ -35,16 +40,6 @@ def get_llama_response(index, query, tokenizer, model):
                                 string=response_task,
                                 pattern='INST]').lstrip('\t').lstrip(' ')
     return response_task
-
-
-def get_start_date(dataset1):
-    if dataset1 == "acl18":
-        start_date1 = datetime.strptime("2015-06-03", format("%Y-%m-%d"))
-    elif dataset1 == "bigdata22":
-        start_date1 = datetime.strptime("2020-04-09", format("%Y-%m-%d"))
-    else:  # cikm18
-        start_date1 = datetime.strptime("2018-01-03", format("%Y-%m-%d"))
-    return start_date1
 
 
 def check_answer(generated_answer, reference_label):
@@ -123,6 +118,33 @@ def get_prompt(retrieve_number, query_sequence, example_sequence_list, is_simila
     return query_llama
 
 
+def last_token_pool(last_hidden_states: Tensor,
+                 attention_mask: Tensor) -> Tensor:
+    left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+    if left_padding:
+        return last_hidden_states[:, -1]
+    else:
+        sequence_lengths = attention_mask.sum(dim=1) - 1
+        batch_size = last_hidden_states.shape[0]
+        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
+
+
+def get_detailed_instruct(task_description: str, query: str) -> str:
+    return f'Instruct: {task_description}\nQuery: {query}'
+
+
+def get_test_data(dataset):
+    data = []
+    directory = '../../data/processed_data/test/' + dataset + '_test_list.json'
+    with open(directory, 'r') as f:
+        for line in f:
+            data.append(json.loads(line))
+
+    # 在整个数据集中，query序列为起始日期的一年后，以确保每一条query都能检索近一年的序列
+    query_start_date = datetime.strptime(data[0]['date_list'][0], format("%Y-%m-%d")) + relativedelta(years=1)
+    return data, query_start_date
+
+
 def get_qualified_retrieval_list(query_date, query_sequence_id, all_data_list):
     start_retrieval_date = query_date - relativedelta(years=1)
     query_company = query_sequence_id.split('_')[1]
@@ -131,49 +153,83 @@ def get_qualified_retrieval_list(query_date, query_sequence_id, all_data_list):
         data_date = all_data_list[i]['date_list'][0]
         data_date = datetime.strptime(data_date, format("%Y-%m-%d"))
         data_company = all_data_list[i]['sequence_id'].split('_')[1]
-        if start_retrieval_date <= data_date < query_date and data_company == query_company:
-            qualified_data_list.append(all_data_list[i])
+        if (start_retrieval_date <= data_date < query_date) and (data_company == query_company):
+            candidate = all_data_list[i]
+            candidate_str = str({
+                'date_list': candidate['date_list'],
+                'open_list': candidate['open_list'],
+                'high_list': candidate['high_list'],
+                'low_list': candidate['low_list'],
+                'close_list': candidate['close_list'],
+                'adj_close_list': candidate['adj_close_list'],
+                'volume_list': candidate['volume_list']
+            })
+            candidate_str = (candidate_str + ', \'movement\': '+ candidate['movement'])
+            qualified_data_list.append(candidate_str)
     # retrieve_result = sample(qualified_data_list, retrieve_number)
     return qualified_data_list
+
+
+def get_embeddings(retrieve_model, dataset, flag='test'):
+    if flag == 'test':
+        # query和candidate的编码不同
+        if (retrieve_model == 'e5') or (retrieve_model == 'instructor'):
+            with open('embeddings/test/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings_query.pkl',
+                      'rb') as f:
+                query_embedding_list = pickle.load(f)
+            with open('embeddings/test/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings_candidate.pkl',
+                      'rb') as f:
+                candidate_embedding_list = pickle.load(f)
+        # query和candidate的编码相同
+        elif retrieve_model == 'bge' or retrieve_model == 'llm_embedder':
+            with open('embeddings/test/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings.pkl',
+                      'rb') as f:
+                query_embedding_list = pickle.load(f)
+                candidate_embedding_list = pickle.load(f)
+    return query_embedding_list, candidate_embedding_list
+
+
+def get_query_embedding(query_sequence_id, query_embedding_list):
+    for i in range(len(query_embedding_list)):
+        data1_id = query_embedding_list[i]['data']['sequence_id']
+        if data1_id == query_sequence_id:
+            query_embedding = query_embedding_list[i]['embedding']
+            break
+    return query_embedding
 
 
 def get_similar_retrieval_list(query_date, query_sequence_id, retrieve_model, flag='test'):
     start_retrieval_date = query_date - relativedelta(years=1)
     query_company = query_sequence_id.split('_')[1]  # company name
     dataset = query_sequence_id.split('_')[0]  # dataset name
-    if flag != 'test':
-        with open(
-                'embeddings/' + retrieve_model + '/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings.pkl',
-                'rb') as f:
-            all_embedding_list = pickle.load(f)
-    else:
-        with open('embeddings/test/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings.pkl',
-                  'rb') as f:
-            all_embedding_list = pickle.load(f)
+
+    query_embedding_list, candidate_embedding_list = get_embeddings(retrieve_model=retrieve_model,
+                                                                    dataset=dataset,
+                                                                    flag=flag)
+    query_embedding = get_query_embedding(query_sequence_id=query_sequence_id,
+                                          query_embedding_list=query_embedding_list)
 
     # {'data': data[i], 'embedding': embeddings_a}
 
-    for i in range(len(all_embedding_list)):
-        data1_id = all_embedding_list[i]['data']['sequence_id']
-        if data1_id == query_sequence_id:
-            query_embedding = all_embedding_list[i]['embedding']
-            break
-
     qualified_data_list = []
-    for i in range(len(all_embedding_list)):
-        data1 = all_embedding_list[i]['data']
-        data1_embedding = all_embedding_list[i]['embedding']
-        data_date = data1['date_list'][0]
-        data_date = datetime.strptime(data_date, format("%Y-%m-%d"))
-        data_company = data1['sequence_id'].split('_')[1]
-        if (start_retrieval_date <= data_date < query_date) and (data_company == query_company):
+    for i in range(len(candidate_embedding_list)):
+        candidate_data = candidate_embedding_list[i]['data']
+        candidate_embedding = candidate_embedding_list[i]['embedding']
+        candidate_date = candidate_data['date_list'][0]
+        candidate_date = datetime.strptime(candidate_date, format("%Y-%m-%d"))
+        candidate_company = candidate_data['sequence_id'].split('_')[1]
+        if (start_retrieval_date <= candidate_date < query_date) and (candidate_company == query_company):
             if retrieve_model == 'instructor':
-                score = cosine_similarity(query_embedding, data1_embedding)
+                score = cosine_similarity(query_embedding, candidate_embedding)
+                score = float(score[0][0])
             elif (retrieve_model == 'bge') or (retrieve_model == 'llm_embedder'):
-                score = query_embedding @ data1_embedding.T
-            score = score[0][0]
+                score = query_embedding @ candidate_embedding.T
+                score = float(score[0][0])
+            elif retrieve_model == 'e5':
+                score = query_embedding @ candidate_embedding.T
+                score = float(score[0][0])
             # print('score: ', score)
-            qualified_data_list.append({'candidate_data': data1, 'score': score})
+            qualified_data_list.append({'candidate_data': candidate_data, 'score': score})
     print('降序')
     similarity_list = sorted(qualified_data_list, key=lambda x: x['score'], reverse=True)
     return similarity_list

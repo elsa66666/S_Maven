@@ -124,7 +124,7 @@ def slice_sequence(sequence_length, dataset_name, split_dataset, remove_freeze=T
         with open("../../data/processed_data/train/" + dataset_name + "_train_list.json", "w") as outfile:
             for obj in train_sequence_list1:
                 json_str = json.dumps(obj)  # 将JSON对象转换为字符串
-                outfile.write(json_str + "\n")   # 将字符串写入文件，并添加换行符
+                outfile.write(json_str + "\n")  # 将字符串写入文件，并添加换行符
             print('Finish slicing the ' + dataset_name + ' train dataset.')
 
     if test_sequence_list1:
@@ -145,12 +145,14 @@ def slice_sequence(sequence_length, dataset_name, split_dataset, remove_freeze=T
 
 if __name__ == "__main__":
     # 默认的dataset
-    '''
-    slice_sequence(sequence_length=5, dataset_name='acl18', split_dataset=[33,5,33])
-    slice_sequence(sequence_length=5, dataset_name='bigdata22', split_dataset=[22,3,22])
-    slice_sequence(sequence_length=5, dataset_name='cikm18', split_dataset=[19,3,19])
+    # slice_sequence(sequence_length=5, dataset_name='acl18', split_dataset=[33, 5, 33])
+    # slice_sequence(sequence_length=5, dataset_name='bigdata22', split_dataset=[22, 3, 22])
+    # slice_sequence(sequence_length=5, dataset_name='cikm18', split_dataset=[19, 3, 19])
+    slice_sequence(sequence_length=5, dataset_name='stock23', split_dataset=[24, 3, 24])
+
     '''
     slice_sequence(sequence_length=5, # 每条序列的长度
                    dataset_name='', # 数据集的名字
                    remove_freeze=True,  # 是否将停摆的股票序列去掉
                    split_dataset=[33, 5, 33])  # 数据集划分[train,valid,test]，如果全作为测试，e.g. [0,0,71]
+    '''

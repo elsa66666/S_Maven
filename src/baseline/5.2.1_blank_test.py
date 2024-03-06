@@ -2,26 +2,34 @@
 import json
 import os
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from transformers import LlamaTokenizer, LlamaForCausalLM
 import pandas as pd
 import argparse
 
 import utils
-from utils import get_llama_response, get_prompt, get_start_date, check_answer
+from utils import get_llama_response, get_prompt, check_answer
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 setattr(utils, 'get_llama_response', get_llama_response)
 setattr(utils, 'get_prompt_for_test', get_prompt)
-setattr(utils, 'get_start_date', get_start_date)
 setattr(utils, 'check_answer', check_answer)
 
 
-def get_retrieve_blank(test_dataset1, model_path1):
+def get_test_data(dataset):
     data = []
-    test_directory = '../../data/processed_data/test/' + test_dataset1 + '_test_list.json'
-    with open(test_directory, 'r') as f:
+    directory = '../../data/processed_data/test/' + dataset + '_test_list.json'
+    with open(directory, 'r') as f:
         for line in f:
             data.append(json.loads(line))
+
+    # 在整个数据集中，query序列为起始日期的一年后，以确保每一条query都能检索近一年的序列
+    query_start_date = datetime.strptime(data[0]['date_list'][0], format("%Y-%m-%d")) + relativedelta(years=1)
+    return data, query_start_date
+
+
+def get_retrieve_blank(test_dataset1, model_path1):
+    data, query_start_date = get_test_data(dataset=test_dataset1)
 
     tokenizer = LlamaTokenizer.from_pretrained(model_path1)
     model = LlamaForCausalLM.from_pretrained(model_path1, device_map='auto')
@@ -30,7 +38,7 @@ def get_retrieve_blank(test_dataset1, model_path1):
     for i in range(len(data)):
 
         date1 = datetime.strptime(data[i]['date_list'][0], format("%Y-%m-%d"))
-        if date1 >= get_start_date(test_dataset1):  # 注意测试的时间范围
+        if date1 >= query_start_date:  # 注意测试的时间范围
             if start_index == -1:
                 start_index = i
             # 序列的index
@@ -71,8 +79,8 @@ def get_retrieve_blank(test_dataset1, model_path1):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='test')
-    parser.add_argument('--test_dataset', default='cikm18', choices=['acl18', 'bigdata22', 'cikm18'], type=str)
-    parser.add_argument('--llm_path', default='/data/xiaomengxi/stock_rag/src/model/LLMs/merged_1310')
+    parser.add_argument('--test_dataset', default='stock23', type=str)
+    parser.add_argument('--llm_path', default='/data/xiaomengxi/stock_rag/src/model/LLMs/merged_7205')
     args = parser.parse_args()
 
     get_retrieve_blank(test_dataset1=args.test_dataset, model_path1=args.llm_path)
