@@ -1,7 +1,9 @@
+import gc
+import subprocess
+
 from InstructorEmbedding import INSTRUCTOR
 import pickle
 from sentence_transformers import SentenceTransformer
-from angle_emb import AnglE, Prompts
 import argparse
 import os
 from datetime import datetime
@@ -25,6 +27,7 @@ setattr(utils, 'get_detailed_instruct', get_detailed_instruct)
 setattr(utils, 'get_test_data', get_test_data)
 
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 def get_embedding_sequence_str(sequence):
     seq1 = {
         'date_list': sequence['date_list'],
@@ -67,7 +70,7 @@ def get_instructor_embeddings(test_dataset1):
 
     candidate_embedding_list = []
     for i in range(len(data)):
-        query_sequence_id = data[i]['sequence_id'] + '_query'
+        query_sequence_id = data[i]['sequence_id'] + '_candidate'
         print('index: ', query_sequence_id)
         seq_str = get_embedding_sequence_str(data[i])
         sentences_a = [['Represent a stock sequence for retrieval: ', seq_str]]
@@ -125,20 +128,48 @@ def get_llm_embedder_embeddings(test_dataset):
     return 0
 
 
-# https://huggingface.co/intfloat/e5-mistral-7b-instruct/tree/main
-def get_e5_embeddings(test_dataset):
-    data, query_start_date = get_test_data(dataset=test_dataset)
+def load_e5_model():
     if os.path.exists('baseline_models/e5-mistral-7b-instruct'):
         print('Loading local model ...')
         tokenizer = AutoTokenizer.from_pretrained('baseline_models/e5-mistral-7b-instruct')
         model = AutoModel.from_pretrained('baseline_models/e5-mistral-7b-instruct')
+        model.to('cuda')
     else:
         print('No local models, downloading ...')
         tokenizer = AutoTokenizer.from_pretrained('intfloat/e5-mistral-7b-instruct')
         model = AutoModel.from_pretrained('intfloat/e5-mistral-7b-instruct')
+        model.to('cuda')
+    return tokenizer, model
+
+
+def show_gpu(msg):
+    """
+    ref: https://discuss.pytorch.org/t/access-gpu-memory-usage-in-pytorch/3192/4
+    """
+
+    def query(field):
+        return (subprocess.check_output(
+            ['nvidia-smi', f'--query-gpu={field}',
+             '--format=csv,nounits,noheader'],
+            encoding='utf-8'))
+
+    def to_int(result):
+        return int(result.strip().split('\n')[0])
+
+    used = to_int(query('memory.used'))
+    total = to_int(query('memory.total'))
+    pct = used / total
+    print('\n' + msg, f'{100 * pct:2.1f}% ({used} out of {total})')
+
+
+# https://huggingface.co/intfloat/e5-mistral-7b-instruct/tree/main
+def get_e5_embeddings(test_dataset):
+    data, query_start_date = get_test_data(dataset=test_dataset)
     max_length = 4096
 
     query_embedding_list = []
+    count = 0
+    tokenizer, model = load_e5_model()
     for i in range(len(data)):
         query_date = datetime.strptime(data[i]['date_list'][0], format("%Y-%m-%d"))
         # 注意query的时间范围
@@ -146,6 +177,7 @@ def get_e5_embeddings(test_dataset):
             # 序列的id
             query_sequence_id = data[i]['sequence_id'] + '_query'
             print('index: ', query_sequence_id)
+            count += 1
             # answer = data[i]['movement']
             task = 'Retrieve similar stock sequences from a given query to aid in predicting next day\'s adjusted close price movement.'
 
@@ -156,17 +188,26 @@ def get_e5_embeddings(test_dataset):
                                    truncation=True)
             # append eos_token_id to every input_ids
             batch_dict['input_ids'] = [input_ids + [tokenizer.eos_token_id] for input_ids in batch_dict['input_ids']]
-            batch_dict = tokenizer.pad(batch_dict, padding=True, return_attention_mask=True, return_tensors='pt')
+            batch_dict = tokenizer.pad(batch_dict, padding=True, return_attention_mask=True, return_tensors='pt').to('cuda')
             outputs = model(**batch_dict)
             embeddings = last_token_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
             # normalize embeddings
             embeddings = F.normalize(embeddings, p=2, dim=1)
+            
+            '''
+            show_gpu(f'{i}: GPU memory usage before clearing cache:')
+            del outputs
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            show_gpu(f'{i}: GPU memory usage after clearing cache:')            
+            '''
 
             query_embedding_list.append({'data': data[i], 'embedding': embeddings})
             print('finish embedding ', i, 'in ', len(data))
 
-    with open(('embeddings/test/test_' + test_dataset + '_e5_embeddings_query.pkl'), 'wb') as f:
-        pickle.dump(query_embedding_list, f)
+            with open(('embeddings/test/test_' + test_dataset + '_e5_embeddings_query.pkl'), 'wb') as f:
+                pickle.dump(query_embedding_list, f)
 
     candidate_embedding_list = []
     for i in range(len(data)):
@@ -183,13 +224,14 @@ def get_e5_embeddings(test_dataset):
         # normalize embeddings
         embeddings = F.normalize(embeddings, p=2, dim=1)
         candidate_embedding_list.append({'data': data[i], 'embedding': embeddings})
-    with open(('embeddings/test/test_' + test_dataset + '_e5_embeddings_candidate.pkl'), 'wb') as f:
-        pickle.dump(candidate_embedding_list, f)
+        with open(('embeddings/test/test_' + test_dataset + '_e5_embeddings_candidate.pkl'), 'wb') as f:
+            pickle.dump(candidate_embedding_list, f)
     return 0
 
 
 # https://huggingface.co/WhereIsAI/UAE-Large-V1
 def get_uae_embeddings(test_dataset):
+    from angle_emb import AnglE, Prompts
     data, query_start_date = get_test_data(dataset=test_dataset)
     if os.path.exists('baseline_models/UAE-Large-V1'):
         print('Loading local model ...')
@@ -197,7 +239,7 @@ def get_uae_embeddings(test_dataset):
     else:
         print('No local models, downloading ...')
         angle = AnglE.from_pretrained('WhereIsAI/UAE-Large-V1', pooling_strategy='cls').cuda()
-
+    angle.set_prompt(prompt=None)
     # get candidate embedding
     candidate_embedding_list = []
     for i in range(len(data)):
@@ -211,6 +253,12 @@ def get_uae_embeddings(test_dataset):
         pickle.dump(candidate_embedding_list, f)
 
     # query prompt
+    if os.path.exists('baseline_models/UAE-Large-V1'):
+        print('Loading local model ...')
+        angle = AnglE.from_pretrained('baseline_models/UAE-Large-V1', pooling_strategy='cls').cuda()
+    else:
+        print('No local models, downloading ...')
+        angle = AnglE.from_pretrained('WhereIsAI/UAE-Large-V1', pooling_strategy='cls').cuda()
     angle.set_prompt(prompt=Prompts.C)
     query_embedding_list = []
     for i in range(len(data)):
@@ -224,14 +272,14 @@ def get_uae_embeddings(test_dataset):
             vec = angle.encode({'text': query_sequence}, to_numpy=True)
             query_embedding_list.append({'data': data[i], 'embedding': vec})
             print('finish embedding ', i, 'in ', len(data))
-    with open(('embeddings/test/test_' + test_dataset + '_e5_embeddings_query.pkl'), 'wb') as f:
+    with open(('embeddings/test/test_' + test_dataset + '_uae_embeddings_query.pkl'), 'wb') as f:
         pickle.dump(query_embedding_list, f)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='test')
     parser.add_argument('--test_dataset', default='acl18', type=str)
-    parser.add_argument('--retrieve_model', default='e5')
+    parser.add_argument('--retrieve_model', default='uae')
     parser.add_argument('--device', default='cuda')
     args = parser.parse_args()
 
@@ -248,3 +296,5 @@ if __name__ == "__main__":
         get_instructor_embeddings(test_dataset1=args.test_dataset)
     elif args.retrieve_model == 'e5':
         get_e5_embeddings(test_dataset=args.test_dataset)
+    elif args.retrieve_model == 'uae':
+        get_uae_embeddings(test_dataset=args.test_dataset)

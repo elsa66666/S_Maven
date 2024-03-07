@@ -173,7 +173,7 @@ def get_qualified_retrieval_list(query_date, query_sequence_id, all_data_list):
 def get_embeddings(retrieve_model, dataset, flag='test'):
     if flag == 'test':
         # query和candidate的编码不同
-        if (retrieve_model == 'e5') or (retrieve_model == 'instructor'):
+        if (retrieve_model == 'e5') or (retrieve_model == 'instructor') or (retrieve_model == 'uae'):
             with open('embeddings/test/' + flag + '_' + dataset + '_' + retrieve_model + '_embeddings_query.pkl',
                       'rb') as f:
                 query_embedding_list = pickle.load(f)
