@@ -1,7 +1,7 @@
 This directory is code for FinSeer. 
-- The datasets used in our paper are uploaded in [FinSeer_data](https://huggingface.co/datasets/ElsaShaw/finseer_data/).
-- Our retriever is uploaded in [FinSeer](https://huggingface.co/ElsaShaw/FinSeer).
-- Our fine-tuned stock llm is uploaded in [StockLLM](https://huggingface.co/ElsaShaw/StockLLM)
+- The datasets used in our paper are uploaded in [FinSeer_data](https://huggingface.co/datasets/NextGenWhu/finseer_data).
+- Our retriever is uploaded in [FinSeer](https://huggingface.co/NextGenWhu/FinSeer).
+- Our fine-tuned stock llm is uploaded in [StockLLM](https://huggingface.co/NextGenWhu/StockLLM-1B).
 
 
 ### Environments
